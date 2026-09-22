@@ -123,6 +123,12 @@ for both `did:webs` and `did:web` resolution.
     3. The KERI event stream MUST be [[ref: CESR]]-formatted, MUST have the
        media type of `application/cesr`, and the KERI events MUST be verifiable
        using the KERI rules.
+    4. Events in the stream SHOULD be ordered so that each event is preceded
+       by the event it names as its prior event, and so that an ACDC, a TEL
+       event or a reply message follows the KEL event that anchors it.
+       Reconciliation is decided by the superseding acceptance rules
+       referenced in [Read (Resolve)](#read-resolve), never by the order in
+       which events appear in the stream.
 1. The `did:web` version of the DIDs MUST be the same (minus the `s`) and
    point to the same `did.json` file.
 
@@ -341,18 +347,45 @@ MUST include an `error` in `didResolutionMetadata` as specified by
        [[ref: KERI event stream]] with media type `application/cesr`.
 1. Process `keri.cesr` according to the [KERI specification](#KSWG-KERI).
     1. If cryptographic verification fails, resolution MUST fail.
-    1. If event-stream divergence or forking is detected (see
-       [AID controlled identifiers](#aid-controlled-identifiers)), resolution
-       MUST fail.
-    1. If an optional `versionId` DID parameter is present, only events up to
-       and including that sequence number MUST be used for the remainder of
-       this procedure (see [Support for `versionId`](#support-for-versionid)).
-1. Confirm that a valid, unrevoked designated aliases ACDC in the KERI event
-   stream as limited by step 3 authorizes the resolved `did:webs` DID and
+    1. Where the stream carries more than one event at a sequence number, the
+       resolver MUST reconcile them under the superseding acceptance rules of
+       the [KERI specification](#KSWG-KERI), §Superseding Recovery and
+       Reconciliation, from that stream alone and holding no prior copy of
+       the AID's [[ref: KEL]]. One case is decidable on those terms, and it
+       is the one a [[ref: superseding recovery]] of exploited signing keys
+       produces: a [[ref: rotation event]] superseding an
+       [[ref: interaction event]] at the same sequence number. The result is
+       the [[ref: trunk]], the undisputed path through the KEL; the
+       superseded event and every event descending from it are disputed and
+       are not on it. Resolution MUST continue.
+    1. Any other dispute at a sequence number is an
+       [[ref: irreconcilable fork]] for the purposes of this procedure and
+       resolution MUST fail. This includes two rotation events at one
+       sequence number, which KERI resolves by the order in which a validator
+       first saw them, and a delegated rotation, which KERI resolves against
+       the delegator's KEL — neither of which a single fetched stream
+       establishes. Divergence between KERI event streams obtained from
+       *different* locations is governed separately by
+       [AID controlled identifiers](#aid-controlled-identifiers).
+    1. Every subsequent step of this procedure operates on the trunk. State
+       anchored to an event that is not on the trunk — a TEL event, an ACDC,
+       or a reply record — MUST NOT be projected into the DID document, used
+       to satisfy any requirement of this procedure, or allowed to defeat
+       one. A revocation anchored to a disputed event does not revoke.
+    1. The resolver MUST NOT let the order in which events appear in the
+       stream decide which of two events at one sequence number prevails.
+    1. If an optional `versionId` DID parameter is present, only trunk events
+       up to and including that sequence number MUST be used for the
+       remainder of this procedure. If the trunk carries no event at that
+       sequence number, resolution MUST fail (see
+       [Support for `versionId`](#support-for-versionid)).
+1. Confirm that a valid, unrevoked designated aliases ACDC, anchored to the
+   trunk established in step 3 and as limited by that step, authorizes the
+   resolved `did:webs` DID and
    the corresponding `did:web` DID. If not, resolution MUST fail. See
    [Designated Aliases](#designated-aliases) and
    [Use of `equivalentId`](#use-of-equivalentid).
-1. Derive the `did:webs` DID document from the verified KERI event stream
+1. Derive the `did:webs` DID document from the trunk established in step 3
    according to [DID documents](#did-documents).
 1. Transform the fetched `did:web` DID document to a `did:webs` DID document
    according to
@@ -2087,10 +2120,15 @@ self-certifying stream of events lies at the heart of the DID method's
 design, see section [KERI Fundamentals](#keri-fundamentals).
 
 1. Valid values for this DID parameter MUST be the sequence numbers of
-   events in the [[ref: KERI event stream]].
+   events on the [[ref: trunk]] established in
+   [Read (Resolve)](#read-resolve). A sequence number carried only by an
+   event the trunk disputes is not a valid value, and resolution MUST fail
+   for it. A [[ref: superseding recovery]] can therefore make a `versionId`
+   that resolved before the recovery stop resolving after it, which is the
+   same repair to the KEL seen from the parameter's side.
 1. When a `did:webs` DID is resolved with this DID parameter, a
    `did:webs` resolver MUST construct the DID document based on an AID's
-   associated KERI events from the KERI event stream only up to
+   associated KERI events from the trunk only up to
    (and including) the event with the sequence number (i.e. the `s` field)
    that corresponds to the value of the `versionId` DID parameter.
 
@@ -2264,7 +2302,7 @@ The `nextVersionId` DID document metadata property indicates the next
 version of the DID document after the version that has been resolved.
 
 1. The `did:webs` `nextVersionId` MUST be the sequence number (i.e. the `s`
-   field) of the next event in the [[ref: KERI event stream]] after the
+   field) of the next event on the [[ref: trunk]] after the
    last one that was used to construct the DID document according to the
    rules in section [DID documents](#did-documents).
 1. This DID document metadata property MUST be present if the DID
@@ -2398,7 +2436,16 @@ this specification; optional KERI infrastructure is expressed with SHOULD.
 1. **Key compromise.** Controllers SHOULD use KERI [[ref: pre-rotation]] and
    key rotation so that compromise of current signing keys does not allow an
    attacker to permanently seize the AID. See
-   [Key state events](#key-state-events).
+   [Key state events](#key-state-events). A rotation that supersedes an event
+   signed with exploited keys forks the [[ref: KEL]] at that sequence number
+   by construction. Where that rotation supersedes an
+   [[ref: interaction event]], a resolver reconciles the fork, derives the
+   DID document from the resulting [[ref: trunk]], and resolution continues,
+   per [Read (Resolve)](#read-resolve). Were it otherwise, an attacker who
+   merely provoked a recovery would obtain permanent denial of the DID. The
+   disputes that procedure cannot decide from one fetched stream still fail
+   resolution, so a controller whose recovery takes another shape depends on
+   the duplicity detection below.
 1. **Duplicity and eclipse.** Controllers and resolvers SHOULD use KERI
    [[ref: witnesses]] and [[ref: watchers]] to detect forked or inconsistently
    published event streams, per
