@@ -182,14 +182,45 @@ processing the [[ref: KERI event stream]] using KERI puts the "s" of
 1. Different versions of the DID document and KERI event stream MAY reside
    in different locations depending on the replication capabilities of the
    controlling entity.
-1. If the KERI event streams differ for `did:webs` DIDs with the same AID,
-   the smaller KERI event stream MUST be a prefix of the larger KERI event
-   stream (e.g., the only difference in the [[ref: KERI event streams]]
-   being the extra events in one of the KERI event streams, not yet
-   reflected in the other).
-1. If the KERI event streams diverge from one another (e.g., one is not a
-   subset of the other), both the KERI event streams and the DIDs MUST be
-   considered invalid.
+1. The comparison rules in this section apply whenever more than one KERI
+   event stream for `did:webs` DIDs with the same AID is held — by a resolver
+   that obtains a second view from a [[ref: watcher]], a mirror, a second
+   designated alias location or its own cache, and by any other party that
+   holds two copies.
+1. The comparison is per log: the AID's own [[ref: KEL]], each
+   [[ref: TEL]] the streams carry, and a delegator's KEL where both streams
+   carry it. A log present in one stream and absent from the other is not
+   compared. Within a log, events are identified by their sequence number and
+   event [[ref: SAID]]. Bytes and messages are not compared: witness
+   receipts, signatures and other attachments accumulate independently at
+   each location, and honest copies routinely differ in how many they carry.
+1. The events of both streams are taken together and reconciled by applying
+   the superseding acceptance rules of the [KERI specification](#KSWG-KERI),
+   and the comparison is between the resulting undisputed paths. A
+   superseding recovery present in one stream and not in the other is
+   reconciled by this step, and MUST NOT be treated as divergence.
+1. If the reconciled logs differ, the smaller MUST be a prefix of the larger,
+   meaning that its events are the larger's events up to and including some
+   sequence number. If neither is a prefix of the other, the
+   [[ref: KERI event streams]] have diverged, and both the KERI event streams
+   and the DIDs MUST be considered invalid.
+1. Where a superseding recovery has occurred, a published stream SHOULD
+   carry the superseded events as well as the superseding ones, so that a
+   party holding a copy taken before the recovery can relate it to the
+   published one. Their absence is not an error: because the comparison
+   reconciles the events of both streams together, a stream carrying only
+   the undisputed path and a stream carrying the disputed branch as well are
+   compared on the same footing.
+1. KERI reply messages — Location Scheme and Endpoint Role Authorization —
+   are not compared here. Their state is governed by [[ref: BADA-RUN]], under
+   which a newer record replaces an older record at the same route rather
+   than following it, so a record present in one stream and absent from
+   another is not evidence of divergence, and a record that conflicts with
+   another is adjudicated where BADA-RUN is specified. The looser treatment
+   is safe for the reason this specification already gives in
+   [Concepts for securing `did:webs` information](#concepts-for-securing-didwebs-information):
+   the worst-case attack on discovery information is one where nothing gets
+   discovered.
 1. The verification of the KERI event stream SHOULD provide mechanisms for
    detecting the forking of the KERI event stream by using mechanisms such
    as KERI [[ref: witnesses]] and [[ref: watchers]].
